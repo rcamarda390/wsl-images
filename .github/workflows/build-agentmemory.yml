@@ -23,7 +23,6 @@ on:
         type: boolean
 
 env:
-  REGISTRY: ghcr.io
   REPO_OWNER: ${{ github.repository_owner }}
   AGENTMEMORY_VERSION: ${{ inputs.agentmemory_version || '0.9.21' }}
   III_VERSION: "0.11.2"
