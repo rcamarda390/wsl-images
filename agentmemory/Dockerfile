@@ -1,7 +1,7 @@
 # =============================================================================
 # agentmemory Docker image
 # =============================================================================
-# Packages @agentmemory/agentmemory@0.9.21 into a Node 20 Alpine image.
+# Packages @agentmemory/agentmemory@0.9.21 into a Node 22 Alpine image.
 #
 # Two usage modes (controlled by CMD at runtime):
 #
@@ -15,10 +15,10 @@
 #
 # Build args:
 #   AGENTMEMORY_VERSION  npm package version (default: 0.9.21)
-#   NODE_VERSION         Node.js major version (default: 20)
+#   NODE_VERSION         Node.js major version (default: 22)
 # =============================================================================
 
-ARG NODE_VERSION=20
+ARG NODE_VERSION=22
 ARG AGENTMEMORY_VERSION=0.9.21
 
 FROM node:${NODE_VERSION}-alpine AS base
