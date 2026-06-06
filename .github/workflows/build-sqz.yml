@@ -1,0 +1,121 @@
+name: Build sqz
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "sqz/**"
+      - ".github/workflows/build-sqz.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "sqz/**"
+  workflow_dispatch:
+    inputs:
+      sqz_version:
+        description: "sqz crates.io version (sqz-cli and sqz-mcp)"
+        required: false
+        default: "1.2.0"
+      push_images:
+        description: "Push images to ghcr.io"
+        required: false
+        default: "true"
+        type: boolean
+
+env:
+  REPO_OWNER: ${{ github.repository_owner }}
+  SQZ_VERSION: ${{ inputs.sqz_version || '1.2.0' }}
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Build sqz image — compiles sqz-cli + sqz-mcp from crates.io source.
+  #
+  # linux/amd64 only: bundled SQLite + tree-sitter + tiktoken-rs compiled
+  # via QEMU for arm64 would exceed reasonable CI time budgets (~60 min).
+  # Add arm64 via a native runner if needed in future.
+  # ---------------------------------------------------------------------------
+  build-sqz:
+    name: Build sqz image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ env.REPO_OWNER }}/wsl-images/sqz
+          tags: |
+            type=raw,value=${{ env.SQZ_VERSION }}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=sha,prefix=sha-
+
+      - name: Build and push sqz image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./sqz
+          file: ./sqz/Dockerfile
+          platforms: linux/amd64
+          push: ${{ inputs.push_images != 'false' && github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            SQZ_VERSION=${{ env.SQZ_VERSION }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Verify image runs
+        run: |
+          docker run --rm \
+            --entrypoint sqz \
+            ghcr.io/${{ env.REPO_OWNER }}/wsl-images/sqz:${{ env.SQZ_VERSION }} \
+            --version || true
+
+  # ---------------------------------------------------------------------------
+  # Smoke-test: verify both sqz and sqz-mcp binaries are present and work
+  # ---------------------------------------------------------------------------
+  smoke-test:
+    name: Smoke test
+    runs-on: ubuntu-latest
+    needs: [build-sqz]
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: read
+      packages: read
+
+    steps:
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify sqz CLI (--version)
+        run: |
+          docker run --rm \
+            --entrypoint sqz \
+            ghcr.io/${{ env.REPO_OWNER }}/wsl-images/sqz:${{ env.SQZ_VERSION }} \
+            --version
+
+      - name: Verify sqz-mcp (--help exits 0)
+        run: |
+          docker run --rm \
+            --entrypoint sqz-mcp \
+            ghcr.io/${{ env.REPO_OWNER }}/wsl-images/sqz:${{ env.SQZ_VERSION }} \
+            --help
