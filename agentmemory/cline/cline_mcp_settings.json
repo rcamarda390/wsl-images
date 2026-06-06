@@ -1,0 +1,21 @@
+{
+  "mcpServers": {
+    "agentmemory": {
+      "command": "wsl",
+      "args": [
+        "-e",
+        "docker",
+        "run",
+        "--rm",
+        "--interactive",
+        "--network", "host",
+        "--env", "AGENTMEMORY_URL=http://localhost:3111",
+        "--env", "AGENTMEMORY_DEBUG=0",
+        "ghcr.io/rcamarda390/wsl-images/agentmemory:0.9.21",
+        "node", "/app/dist/cli.mjs", "mcp"
+      ],
+      "disabled": false,
+      "alwaysAllow": []
+    }
+  }
+}

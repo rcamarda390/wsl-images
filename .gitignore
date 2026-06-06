@@ -1,0 +1,16 @@
+# Runtime secrets — never commit
+.env
+**/.env
+
+# Docker image tarballs
+*.tar
+images-to-transfer/
+agentmemory-images/
+
+# Node
+node_modules/
+dist/
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,109 @@
+# =============================================================================
+# agentmemory — WSL2 / air-gap Docker Compose
+# =============================================================================
+#
+# Services:
+#   iii-init         One-shot volume permission fix (busybox)
+#   iii-engine       iii runtime backend (state, HTTP, queue, pubsub, streams)
+#   agentmemory      agentmemory worker — connects to iii-engine via iii-sdk
+#
+# Quick start:
+#   cp .env.example .env
+#   # Edit .env — set your LLM provider (see comments inside)
+#   docker compose up -d
+#
+# Image registry:
+#   Images are published to ghcr.io/rcamarda390/wsl-images/
+#   For Artifactory import, see scripts/pull-and-save.sh
+#
+# Ports exposed to WSL2 localhost (and therefore Windows localhost):
+#   3111  REST API  (agentmemory HTTP, used by MCP shim)
+#   3112  Streams WebSocket
+#   9464  Metrics / observability
+# =============================================================================
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # Init container: fixes /data volume permissions.
+  # iii-engine runs as UID 65532 (distroless nonroot); Docker creates volumes
+  # as root, so without this chown the engine cannot write state.
+  # Runs once at compose-up and exits immediately.
+  # ---------------------------------------------------------------------------
+  iii-init:
+    image: ${REGISTRY:-ghcr.io/rcamarda390/wsl-images}/busybox:1.36
+    user: "0:0"
+    volumes:
+      - iii-data:/data
+    entrypoint:
+      - sh
+      - -c
+      - chown -R 65532:65532 /data && chmod 755 /data
+    restart: "no"
+
+  # ---------------------------------------------------------------------------
+  # iii-engine: the infrastructure backend.
+  # Provides HTTP gateway (3111), state store, queue, pubsub, streams (3112),
+  # and the WebSocket worker bus (49134) that agentmemory connects to.
+  #
+  # Pinned to 0.11.2 — agentmemory 0.9.x requires this version.
+  # v0.11.6+ introduced a breaking sandbox model change.
+  # Override via AGENTMEMORY_III_VERSION env var only after testing.
+  # ---------------------------------------------------------------------------
+  iii-engine:
+    image: ${REGISTRY:-ghcr.io/rcamarda390/wsl-images}/iii:${AGENTMEMORY_III_VERSION:-0.11.2}
+    user: "65532:65532"
+    depends_on:
+      iii-init:
+        condition: service_completed_successfully
+    ports:
+      - "127.0.0.1:49134:49134"   # iii-sdk WebSocket (internal, agentmemory connects here)
+      - "127.0.0.1:3111:3111"     # REST API (MCP shim, viewer)
+      - "127.0.0.1:3112:3112"     # Streams WebSocket
+      - "127.0.0.1:9464:9464"     # Observability / metrics
+    volumes:
+      - iii-data:/data
+      - ./iii-config.wsl.yaml:/app/config.yaml:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3111/livez || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ---------------------------------------------------------------------------
+  # agentmemory worker: the TypeScript worker process.
+  # Connects to iii-engine via iii-sdk WebSocket, registers HTTP handlers for
+  # /agentmemory/* routes, and performs memory operations (save, recall, search).
+  #
+  # LLM configuration is in .env — see .env.example for all options.
+  # For AWS Bedrock at work: set OPENAI_BASE_URL to your LiteLLM endpoint.
+  # ---------------------------------------------------------------------------
+  agentmemory:
+    image: ${REGISTRY:-ghcr.io/rcamarda390/wsl-images}/agentmemory:${AGENTMEMORY_VERSION:-0.9.21}
+    depends_on:
+      iii-engine:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      III_ENGINE_URL: ws://iii-engine:49134
+      AGENTMEMORY_URL: http://iii-engine:3111
+      III_STREAMS_PORT: "3112"
+      NODE_ENV: production
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  iii-data:
+    name: agentmemory-iii-data

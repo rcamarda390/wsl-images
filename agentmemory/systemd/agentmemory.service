@@ -1,0 +1,43 @@
+# =============================================================================
+# agentmemory systemd service for WSL2
+# =============================================================================
+# Starts the agentmemory Docker stack automatically when WSL2 boots.
+#
+# INSTALL (run once inside WSL2):
+#   sudo cp agentmemory.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable agentmemory
+#   sudo systemctl start agentmemory
+#
+# REQUIRES: systemd enabled in WSL2 (see wsl.conf)
+# =============================================================================
+
+[Unit]
+Description=agentmemory MCP stack (iii-engine + worker)
+Documentation=https://github.com/rcamarda390/wsl-images
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+
+# Path to the agentmemory compose directory — adjust if you clone elsewhere
+Environment=COMPOSE_DIR=/opt/agentmemory
+
+ExecStartPre=/usr/bin/docker compose -f ${COMPOSE_DIR}/docker-compose.yml pull --quiet
+ExecStart=/usr/bin/docker compose -f ${COMPOSE_DIR}/docker-compose.yml up -d --remove-orphans
+ExecStop=/usr/bin/docker compose -f ${COMPOSE_DIR}/docker-compose.yml down
+
+# Give containers time to settle before reporting "active"
+ExecStartPost=/bin/sleep 3
+
+Restart=on-failure
+RestartSec=10s
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=agentmemory
+
+[Install]
+WantedBy=multi-user.target
