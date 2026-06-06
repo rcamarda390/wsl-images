@@ -161,7 +161,7 @@ jobs:
           docker compose up -d
           echo "Waiting for /livez..."
           for i in $(seq 1 18); do
-            if curl -sf http://localhost:3111/livez; then
+                      if curl -sf http://localhost:3111/agentmemory/mcp/tools; then
               echo; echo "Stack is healthy."
               exit 0
             fi
