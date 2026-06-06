@@ -19,7 +19,7 @@
 # Ports exposed to WSL2 localhost (and therefore Windows localhost):
 #   3111  REST API  (agentmemory HTTP, used by MCP shim)
 #   3112  Streams WebSocket
-#   9464  Metrics / observability
+#   9464  Metrics / observabilityh
 # =============================================================================
 
 services:
@@ -65,12 +65,6 @@ services:
       - iii-data:/data
       - ./iii-config.wsl.yaml:/app/config.yaml:ro
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3111/livez || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 15s
     logging:
       driver: json-file
       options:
@@ -89,7 +83,7 @@ services:
     image: ${REGISTRY:-ghcr.io/rcamarda390/wsl-images}/agentmemory:${AGENTMEMORY_VERSION:-0.9.21}
     depends_on:
       iii-engine:
-        condition: service_healthy
+        condition: service_started
     env_file:
       - .env
     environment:
