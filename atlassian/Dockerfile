@@ -7,7 +7,7 @@ ARG MCP_ATLASSIAN_VERSION
 RUN uv venv /venv
 RUN uv pip install --python /venv/bin/python \
         --no-cache \
-        "mcp-atlassian=${MCP_ATLASSIAN_VERSION}"
+        "mcp-atlassian==${MCP_ATLASSIAN_VERSION}"
 
 # ── runtime ──────────────────────────────────────────────────────────────────
 FROM python:3.13-alpine AS runtime
