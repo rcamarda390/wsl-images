@@ -1,0 +1,92 @@
+name: Build mcp-atlassian
+on:
+  push:
+    branches: [main]
+    paths:
+      - "atlassian/**"
+      - ".github/workflows/build-atlassian.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "atlassian/**"
+  workflow_dispatch:
+    inputs:
+      atlassian_version:
+        description: "mcp-atlassian PyPI version"
+        required: false
+        default: "0.21.1"
+      push_images:
+        description: "Push images to ghcr.io"
+        required: false
+        default: "true"
+        type: boolean
+env:
+  REPO_OWNER: ${{ github.repository_owner }}
+  ATLASSIAN_VERSION: ${{ inputs.atlassian_version || '0.21.1' }}
+jobs:
+  build-atlassian:
+    name: Build mcp-atlassian image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ env.REPO_OWNER }}/wsl-images/mcp-atlassian
+          tags: |
+            type=raw,value=${{ env.ATLASSIAN_VERSION }}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=sha,prefix=sha-
+      - uses: docker/build-push-action@v5
+        with:
+          context: ./atlassian
+          platforms: linux/amd64,linux/arm64
+          push: ${{ inputs.push_images != 'false' && github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            MCP_ATLASSIAN_VERSION=${{ env.ATLASSIAN_VERSION }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      # Multi-platform images can't be loaded into the local daemon on PR builds;
+      # the smoke-test job below handles verification post-merge.
+      - name: Verify image runs (post-merge only)
+        if: github.event_name != 'pull_request'
+        run: |
+          docker run --rm \
+            ghcr.io/${{ env.REPO_OWNER }}/wsl-images/mcp-atlassian:${{ env.ATLASSIAN_VERSION }} \
+            --version
+  smoke-test:
+    name: Smoke test
+    runs-on: ubuntu-latest
+    needs: [build-atlassian]
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify mcp-atlassian --version
+        run: |
+          docker run --rm \
+            ghcr.io/${{ env.REPO_OWNER }}/wsl-images/mcp-atlassian:${{ env.ATLASSIAN_VERSION }} \
+            --version
+      - name: Verify mcp-atlassian --help (exit 0)
+        run: |
+          docker run --rm \
+            ghcr.io/${{ env.REPO_OWNER }}/wsl-images/mcp-atlassian:${{ env.ATLASSIAN_VERSION }} \
+            --help
