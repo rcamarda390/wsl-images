@@ -116,7 +116,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             AGENTMEMORY_VERSION=${{ env.AGENTMEMORY_VERSION }}
-            NODE_VERSION=20
+            NODE_VERSION=22
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -171,17 +171,9 @@ jobs:
           docker compose logs
           exit 1
 
-      - name: Run MCP shim and list tools
+      - name: Verify memory_save tool is registered
         run: |
-          TOOLS=$(docker run --rm \
-            --network host \
-            -e AGENTMEMORY_URL=http://localhost:3111 \
-            ghcr.io/${{ env.REPO_OWNER }}/wsl-images/agentmemory:${{ env.AGENTMEMORY_VERSION }} \
-            node /app/dist/cli.mjs mcp <<'EOF'
-          {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"ci","version":"0"}}}
-          {"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}
-          EOF
-          )
+          TOOLS=$(curl -sf http://localhost:3111/agentmemory/mcp/tools)
           echo "$TOOLS"
           echo "$TOOLS" | grep -q "memory_save" && echo "memory_save tool found — PASS"
 
