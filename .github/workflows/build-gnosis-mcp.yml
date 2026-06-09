@@ -4,9 +4,8 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "gnosis-mcp version tag (e.g. 0.13.3)"
-        required: false
-        default: "latest"
+        description: "Image version tag (e.g. 0.13.3)"
+        required: true
 
 env:
   REGISTRY: ghcr.io
@@ -23,10 +22,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
@@ -34,19 +33,18 @@ jobs:
 
       - name: Extract metadata for Docker
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
+            type=raw,value=${{ github.event.inputs.version }}
             type=raw,value=latest
-            type=raw,value=${{ github.event.inputs.version }},enable=${{ github.event.inputs.version != 'latest' }}
-            type=sha,prefix=sha-
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Build and push image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: ./gnosis-mcp
           file: ./gnosis-mcp/Dockerfile
@@ -64,5 +62,5 @@ jobs:
           echo "================================================"
           echo ""
           echo " Pull on EC2 (network side):"
-          echo "   docker pull ghcr.io/${{ env.IMAGE_NAME }}:latest"
+          echo "   docker pull ghcr.io/${{ env.IMAGE_NAME }}:${{ github.event.inputs.version }}"
           echo ""
