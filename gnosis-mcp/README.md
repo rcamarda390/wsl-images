@@ -2,91 +2,81 @@
 
 Serves pre-processed markdown documentation to air-gapped Cline agents
 via the MCP protocol. Uses SQLite FTS5 full-text search. Zero cloud
-dependencies, no embeddings, no API keys.
+dependencies at runtime. No embeddings. No API keys.
 
-## Architecture
+## How it works
 
 ```
-[Claude Chat (internet)]          [EC2 — air-gapped]
-  │                                     │
-  │  Claude processes raw docs           │
-  │  → clean markdown files             │
-  │                                     │
-  └──── SCP markdown tarball ──────────►│
-                                        │
-                              /opt/gnosis-mcp/docs/
-                                        │
-                              Docker container
-                              gnosis-mcp ingest → SQLite
-                              gnosis-mcp serve  → MCP
-                                        │
-                              Cline queries via MCP
+[This Claude Chat]              [GitHub Actions]         [EC2 — air-gapped]
+  │                                   │                        │
+  │ Processes raw docs                │ Builds Docker image    │
+  │ → clean markdown                  │ (pulls gnosis-mcp      │
+  │                                   │  from PyPI)            │
+  │                                   │ Pushes to ghcr.io      │
+  │                                   │                        │
+  └── SCP markdown ──────────────────────────────────────────►│
+                                                               │
+                                      docker pull ghcr.io/... ◄┘
+                                                               │
+                                              /opt/gnosis-mcp/docs/
+                                                               │
+                                            gnosis-mcp ingest → SQLite
+                                            gnosis-mcp serve  → MCP
+                                                               │
+                                            Cline queries via MCP
 ```
 
 ## Folder Structure
 
 ```
 gnosis-mcp/
-├── Dockerfile              # Container definition
-├── docker-compose.yml      # For local EC2 testing
-├── .gitignore
+├── Dockerfile                        # Container definition
+├── .github/
+│   └── workflows/
+│       └── build.yml                 # GitHub Actions — manual trigger
 ├── docker/
-│   ├── entrypoint.sh       # Ingest + serve on startup
-│   └── files/
-│       ├── README.md       # Instructions for wheel placement
-│       └── gnosis_mcp-*.whl  ← download this, do not commit
-└── docs/                   # (gitignored) example doc structure
+│   └── entrypoint.sh                 # Ingest + serve on startup
+└── README.md
 ```
 
-## Quick Start
+## Build the Image
 
-### Step 1 — Get the gnosis-mcp wheel (internet machine)
+1. Go to **Actions** tab in this repo
+2. Select **Build gnosis-mcp image**
+3. Click **Run workflow**
+4. Optionally enter a version tag (e.g. `0.13.3`)
+5. Click **Run workflow**
 
-Download from https://pypi.org/project/gnosis-mcp/#files
+Image is pushed to: `ghcr.io/rcamarda390/gnosis-mcp:latest`
 
-Place in `docker/files/gnosis_mcp-0.13.3-py3-none-any.whl`
-
-### Step 2 — Build the image (on EC2)
-
-```bash
-cd gnosis-mcp
-docker build -t gnosis-mcp-image .
-```
-
-### Step 3 — Prepare docs directory (on EC2)
+## Deploy on EC2
 
 ```bash
+# Pull image (run from network-accessible side)
+docker pull ghcr.io/rcamarda390/gnosis-mcp:latest
+
+# Create host directories for docs and database
 sudo mkdir -p /opt/gnosis-mcp/docs
 sudo mkdir -p /opt/gnosis-mcp/db
+
+# SCP processed markdown docs into /opt/gnosis-mcp/docs/
+# (see doc processing workflow below)
+
+# Run container
+docker run -d \
+  --name gnosis-mcp \
+  --restart unless-stopped \
+  -v /opt/gnosis-mcp/docs:/docs:ro \
+  -v gnosis-db:/db \
+  ghcr.io/rcamarda390/gnosis-mcp:latest
+
+# Check logs (ingest output)
+docker logs -f gnosis-mcp
 ```
 
-SCP your processed markdown files into `/opt/gnosis-mcp/docs/`.
+## Configure Cline (stdio mode — recommended)
 
-Recommended structure:
-```
-/opt/gnosis-mcp/docs/
-├── airflow/
-│   ├── operators.md
-│   ├── hooks.md
-│   └── dag-authoring.md
-├── redshift/
-│   ├── sql-reference.md
-│   └── data-types.md
-├── sqlglot/
-│   └── api-reference.md
-└── ...
-```
-
-### Step 4 — Run (on EC2)
-
-```bash
-docker compose up -d
-docker compose logs -f
-```
-
-### Step 5 — Configure Cline
-
-Add to your Cline MCP config (`~/.cline/mcp-settings.json`):
+Add to `~/.cline/mcp-settings.json`:
 
 ```json
 {
@@ -102,39 +92,21 @@ Add to your Cline MCP config (`~/.cline/mcp-settings.json`):
 }
 ```
 
-Or if running in HTTP mode:
-
-```json
-{
-  "mcpServers": {
-    "gnosis-docs": {
-      "url": "http://localhost:6333/mcp"
-    }
-  }
-}
-```
-
 ## Updating Docs
 
-1. Process new/updated docs via Claude Chat → download markdown
-2. SCP to `/opt/gnosis-mcp/docs/`
-3. Restart the container — it re-ingests automatically on startup,
-   skipping unchanged files (incremental indexing)
+1. Process new docs via Claude Chat → download markdown
+2. SCP markdown to `/opt/gnosis-mcp/docs/`
+3. Restart container to re-ingest:
 
 ```bash
-docker compose restart gnosis-mcp
+docker restart gnosis-mcp
+docker logs -f gnosis-mcp
 ```
 
 ## Troubleshooting
 
 ```bash
-# Check container status
-docker compose ps
-
-# View startup logs (ingest output)
-docker compose logs gnosis-mcp
-
-# Check how many chunks are indexed
+# Check indexed chunk count
 docker exec gnosis-mcp gnosis-mcp stats --db /db/docs.db
 
 # Test a search manually
@@ -143,16 +115,3 @@ docker exec gnosis-mcp gnosis-mcp search "DAG authoring" --db /db/docs.db
 # Shell into container
 docker exec -it gnosis-mcp /bin/bash
 ```
-
-## Dependencies
-
-All resolved from Artifactory during build (confirmed present):
-- `mcp` — MCP Python SDK
-- `click` — CLI framework
-- `aiofiles` — async file I/O
-- `anyio` — async runtime
-- `starlette` — ASGI transport
-- `httpx` — HTTP client
-
-Not in Artifactory (bundled as wheel in `docker/files/`):
-- `gnosis-mcp` — the MCP server itself
