@@ -1,0 +1,68 @@
+name: Build gnosis-mcp image
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "gnosis-mcp version tag (e.g. 0.13.3)"
+        required: false
+        default: "latest"
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository_owner }}/gnosis-mcp
+
+jobs:
+  build-and-push:
+    name: Build and push Docker image
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest
+            type=raw,value=${{ github.event.inputs.version }},enable=${{ github.event.inputs.version != 'latest' }}
+            type=sha,prefix=sha-
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./gnosis-mcp
+          file: ./gnosis-mcp/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Print pull command
+        run: |
+          echo ""
+          echo "================================================"
+          echo " Image pushed successfully"
+          echo "================================================"
+          echo ""
+          echo " Pull on EC2 (network side):"
+          echo "   docker pull ghcr.io/${{ env.IMAGE_NAME }}:latest"
+          echo ""
