@@ -1,0 +1,46 @@
+# ============================================================
+# gnosis-mcp docker-compose
+# For local testing on the EC2 host (not devcontainer)
+# ============================================================
+#
+# Usage:
+#   docker compose up -d
+#   docker compose logs -f
+#   docker compose down
+#
+# Docs directory: /opt/gnosis-mcp/docs/
+# Database:       /opt/gnosis-mcp/db/docs.db
+# ============================================================
+
+version: "3.8"
+
+services:
+  gnosis-mcp:
+    image: gnosis-mcp-image:latest
+    container_name: gnosis-mcp
+    restart: unless-stopped
+
+    environment:
+      GNOSIS_MCP_DOCS_PATH: /docs
+      GNOSIS_MCP_DB_PATH: /db/docs.db
+      GNOSIS_MCP_TRANSPORT: http
+      GNOSIS_MCP_PORT: "6333"
+
+    volumes:
+      # Docs: bind-mount from host, read-only
+      # Place processed markdown files here before starting
+      - /opt/gnosis-mcp/docs:/docs:ro
+
+      # Database: persisted volume so re-ingest is incremental
+      - gnosis-db:/db
+
+    ports:
+      - "6333:6333"
+
+    # Resource limits (adjust to EC2 sizing)
+    mem_limit: 512m
+    cpus: "0.5"
+
+volumes:
+  gnosis-db:
+    driver: local
